@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Poppins", ui-sans-serif, system-ui;
+  --font-serif: "Poppins", serif;
+  
+  --color-brand-asphalt: #2F363F;
+  --color-brand-sandstone: #A89F8C;
+  --color-brand-slate: #4A5859;
+  --color-brand-mossy: #4E5D46; /* Mossy Stone */
+  
+  /* Mapping to functional names for easier usage */
+  --color-brand-ink: var(--color-brand-asphalt);
+  --color-brand-bg: #F8F7F5; /* A very light version of sandstone for background */
+  --color-brand-accent: var(--color-brand-slate);
+  --color-brand-secondary: var(--color-brand-sandstone);
+}
+
+@layer base {
+  a {
+    @apply no-underline;
+  }
+  
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-brand-bg);
+    @apply antialiased text-brand-ink;
+  }
+}
+
+@layer components {
+  .minimal-card {
+    @apply bg-white rounded-[24px] border border-black/[0.03] shadow-sm;
+  }
+}

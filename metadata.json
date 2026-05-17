@@ -1,0 +1,6 @@
+{
+  "name": "Auld Reekie Coffee",
+  "description": "Authentic coffee shop ordering system with real-time order tracking and admin management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["auth", "database"]
+}
