@@ -41,21 +41,29 @@ export default function LoginPage() {
     }
   };
 
-  const handleFallbackLogin = async (usernameToUse: string) => {
+  const handleFallbackLogin = async (usernameToUse: string, forceRole?: string) => {
     // Fallback to localStorage logic
     console.warn('Using LocalStorage fallback');
     const fakeEmail = SupabaseService.toAuthEmail(usernameToUse);
-    let firstAdmin = localStorage.getItem('firstAdminEmail');
-    if (!firstAdmin) {
-      localStorage.setItem('firstAdminEmail', fakeEmail);
-      firstAdmin = fakeEmail;
+    
+    // Determine role: use forceRole if provided, otherwise check existing profile first
+    let role = forceRole || 'user';
+    if (!forceRole) {
+      const existingProfile = await SupabaseService.getProfile(fakeEmail);
+      if (existingProfile) {
+        role = existingProfile.role || 'user';
+      } else {
+        // Only assign admin if firstAdminEmail was already set and matches
+        const firstAdmin = localStorage.getItem('firstAdminEmail');
+        role = (firstAdmin && firstAdmin === fakeEmail) ? 'admin' : 'user';
+      }
     }
     
     // Use the unified service to ensure registry sync
     const profile = await SupabaseService.upsertProfile({
       email: fakeEmail,
       username: usernameToUse,
-      role: firstAdmin === fakeEmail ? 'admin' : 'user',
+      role,
       status: 'Active',
       points: 0
     });
@@ -82,27 +90,59 @@ export default function LoginPage() {
     const fakeEmail = SupabaseService.toAuthEmail(username);
 
     try {
-      // Simulate first user is admin in localStorage for initial state
-      let firstAdmin = localStorage.getItem('firstAdminEmail');
+      const firstAdmin = localStorage.getItem('firstAdminEmail');
       
       if (isSupabaseConfigured) {
         try {
           if (isSignUp) {
-            // Sign Up attempt
+            // === SIGN UP FLOW ===
             try {
               await SupabaseService.signUp(username, password);
             } catch (signupErr: any) {
-              // If already exists, we'll try to log in via fallback anyway
-              if (!signupErr.message?.includes('registered')) {
-                console.warn('Signup issue:', signupErr);
+              if (signupErr.message?.includes('already registered') || signupErr.message?.includes('User already registered')) {
+                setErrorMessage('Username sudah terdaftar. Silakan login.');
+                clearTimeout(loginTimeout);
+                setLoading(false);
+                return;
               }
+              console.warn('Signup issue:', signupErr);
             }
-            // Proactively jump to local session to skip verification waiting period
-            await handleFallbackLogin(username);
+
+            // After signup, try to sign in immediately to get a session
+            try {
+              const { user } = await SupabaseService.signIn(username, password);
+              if (user) {
+                // New signup always gets 'user' role, never admin
+                const profile = await SupabaseService.upsertProfile({
+                  email: fakeEmail,
+                  username: username,
+                  photo: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+                  role: 'user',
+                  status: 'Active',
+                  points: 0
+                });
+
+                localStorage.setItem('currentUserEmail', fakeEmail);
+                localStorage.setItem('currentUserName', profile?.username || username);
+                localStorage.setItem('currentUserRole', 'user');
+                clearTimeout(loginTimeout);
+                navigate('/app/dashboard');
+                return;
+              }
+            } catch (signInAfterSignup: any) {
+              // If sign-in fails after signup (e.g. email confirmation required), use fallback
+              console.warn('Sign-in after signup failed, using fallback:', signInAfterSignup.message);
+              await handleFallbackLogin(username, 'user');
+              clearTimeout(loginTimeout);
+              return;
+            }
+
+            // Fallback if signIn didn't return a user
+            await handleFallbackLogin(username, 'user');
             clearTimeout(loginTimeout);
             return;
           } else {
-            // Sign In attempt
+            // === SIGN IN FLOW ===
             try {
               const { user } = await SupabaseService.signIn(username, password);
               if (user) {
@@ -117,8 +157,8 @@ export default function LoginPage() {
                 }
 
                 if (!profile) {
-                  const role = (!firstAdmin || firstAdmin === fakeEmail) ? 'admin' : 'user';
-                  if (!firstAdmin) localStorage.setItem('firstAdminEmail', fakeEmail);
+                  // Existing auth user but no profile — check if they're the first admin
+                  const role = (firstAdmin && firstAdmin === fakeEmail) ? 'admin' : 'user';
 
                   profile = await SupabaseService.upsertProfile({
                     email: fakeEmail,
@@ -138,18 +178,24 @@ export default function LoginPage() {
                 return;
               }
             } catch (signInErr: any) {
+              if (signInErr.message?.includes('Invalid login credentials')) {
+                setErrorMessage('Username atau password salah.');
+                clearTimeout(loginTimeout);
+                setLoading(false);
+                return;
+              }
               const isConfirmationError = signInErr.message?.includes('Email not confirmed') || signInErr.message?.includes('confirmation') || signInErr.status === 400;
               if (isConfirmationError) {
-                 console.warn('Confirmation required, bypassing via Demo Mode...');
+                 console.warn('Confirmation required, bypassing via fallback...');
                  await handleFallbackLogin(username);
                  clearTimeout(loginTimeout);
                  return;
               }
-              throw signInErr; // Re-throw other errors to hit the general catch
+              throw signInErr;
             }
           }
         } catch (err: any) {
-          // General fallback for ANY auth error to ensure user can get in
+          console.error('Auth error, using fallback:', err.message);
           await handleFallbackLogin(username);
           clearTimeout(loginTimeout);
           return;

@@ -1,4 +1,4 @@
--- SQL Template to fix Auld Reekie Coffee Database
+-- SQL Setup for Auld Reekie Coffee Database
 -- Copy and run this in Supabase SQL Editor (https://supabase.com/dashboard/project/_/sql)
 
 -- 1. Profiles Table
@@ -46,26 +46,32 @@ CREATE TABLE IF NOT EXISTS public.menu_catalog (
   img TEXT
 );
 
--- 5. Row Level Security (RLS) Configuration
--- We enable RLS and allow all operations for this demo
+-- 5. Fix RLS: Drop old policies first, then recreate
+-- This ensures the policies are correct even if they were previously misconfigured
+
+-- Drop existing policies (ignore errors if they don't exist)
+DROP POLICY IF EXISTS "Allow All Profiles" ON profiles;
+DROP POLICY IF EXISTS "Allow All Orders" ON orders;
+DROP POLICY IF EXISTS "Allow All Complaints" ON complaints;
+DROP POLICY IF EXISTS "Allow All Menu" ON menu_catalog;
+
+-- Enable RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE complaints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE menu_catalog ENABLE ROW LEVEL SECURITY;
 
--- Dynamic Policies (Safe for development)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow All Profiles') THEN
-        CREATE POLICY "Allow All Profiles" ON profiles FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow All Orders') THEN
-        CREATE POLICY "Allow All Orders" ON orders FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow All Complaints') THEN
-        CREATE POLICY "Allow All Complaints" ON complaints FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow All Menu') THEN
-        CREATE POLICY "Allow All Menu" ON menu_catalog FOR ALL USING (true) WITH CHECK (true);
-    END IF;
-END $$;
+-- Create permissive policies for ALL operations (SELECT, INSERT, UPDATE, DELETE)
+CREATE POLICY "Allow All Profiles" ON profiles FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow All Orders" ON orders FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow All Complaints" ON complaints FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow All Menu" ON menu_catalog FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+-- 6. Grant table permissions to anon and authenticated roles
+GRANT ALL ON public.profiles TO anon, authenticated;
+GRANT ALL ON public.orders TO anon, authenticated;
+GRANT ALL ON public.complaints TO anon, authenticated;
+GRANT ALL ON public.menu_catalog TO anon, authenticated;
+
+-- Grant sequence usage (needed for auto-increment columns)
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;

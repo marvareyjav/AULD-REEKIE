@@ -64,17 +64,17 @@ export default function AppShell() {
           const profile = await SupabaseService.getProfile(currentUserEmail);
           
           if (!profile) {
-            // No profile yet, create one
-            const fallbackAdmin = currentUserEmail === firstAdminEmail;
+            // No profile yet, create one — only assign admin if firstAdminEmail was previously set and matches
+            const isFirstAdmin = !!(firstAdminEmail && currentUserEmail === firstAdminEmail);
             await SupabaseService.upsertProfile({
               email: currentUserEmail,
               username: currentUserName,
-              role: fallbackAdmin ? 'admin' : 'user',
+              role: isFirstAdmin ? 'admin' : 'user',
               status: 'Active',
               points: 0
             });
-            setIsAdmin(fallbackAdmin);
-            localStorage.setItem('currentUserRole', fallbackAdmin ? 'admin' : 'user');
+            setIsAdmin(isFirstAdmin);
+            localStorage.setItem('currentUserRole', isFirstAdmin ? 'admin' : 'user');
             const updated = await SupabaseService.getProfile(currentUserEmail);
             if (updated?.photo) setProfilePhoto(updated.photo);
           } else {
@@ -91,6 +91,8 @@ export default function AppShell() {
               localStorage.setItem('users_registry', JSON.stringify(usersRegistry));
             }
           }
+          // Always ensure profile exists in Supabase (safety net for failed syncs)
+          await SupabaseService.syncProfileToSupabase(currentUserEmail);
         } catch (err) {
           console.error('AppShell profile sync failed:', err);
         }

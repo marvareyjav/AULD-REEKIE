@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export interface Profile {
   email: string;
@@ -38,6 +39,15 @@ export const SupabaseService = {
     const url = import.meta.env.VITE_SUPABASE_URL;
     const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
     return !!(url && key && url !== 'placeholder' && key !== 'placeholder');
+  },
+
+  // Create a fresh client with NO auth session — guaranteed to work with anon key
+  _freshClient() {
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    return createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
   },
 
   toAuthEmail(username: string): string {
@@ -142,7 +152,10 @@ export const SupabaseService = {
 
       if (this.isConfigured()) {
         try {
-          const { data: existing, error: fetchError } = await supabase
+          // Use a fresh client to avoid broken auth session issues
+          const db = this._freshClient();
+
+          const { data: existing, error: fetchError } = await db
             .from('profiles')
             .select('*')
             .eq('email', profile.email)
@@ -161,20 +174,28 @@ export const SupabaseService = {
             ...sanitizedUpdate 
           };
           
-          const { data, error } = await supabase
+          const { data, error } = await db
             .from('profiles')
             .upsert(finalProfile, { onConflict: 'email' })
             .select()
             .single();
 
           if (error) {
-            console.error('Supabase profile sync failed:', error.message);
+            console.error('Supabase profile sync FAILED:', error.message, error.details, error.hint);
             return mergedProfile as Profile;
           }
 
-          if (data && userIdx >= 0) {
-            usersRegistry[userIdx] = data;
-            localStorage.setItem('users_registry', JSON.stringify(usersRegistry));
+          console.log('Profile synced to Supabase successfully:', data?.email);
+
+          if (data) {
+            const updatedRegistry = JSON.parse(localStorage.getItem('users_registry') || '[]');
+            const idx = updatedRegistry.findIndex((u: any) => u.email === data.email);
+            if (idx >= 0) {
+              updatedRegistry[idx] = data;
+            } else {
+              updatedRegistry.push(data);
+            }
+            localStorage.setItem('users_registry', JSON.stringify(updatedRegistry));
           }
 
           return data as Profile;
@@ -188,6 +209,46 @@ export const SupabaseService = {
       console.error('Upsert profile error:', err);
       const usersRegistry = JSON.parse(localStorage.getItem('users_registry') || '[]');
       return usersRegistry.find((u: any) => u.email === profile.email) || profile as Profile;
+    }
+  },
+
+  // Force sync a profile to Supabase — called from AppShell to ensure profiles are in DB
+  async syncProfileToSupabase(email: string) {
+    if (!this.isConfigured() || !email) return;
+    try {
+      const db = this._freshClient();
+      const { data: existing } = await db
+        .from('profiles')
+        .select('email')
+        .eq('email', email)
+        .maybeSingle();
+      
+      if (existing) return; // Already in Supabase
+
+      // Not in Supabase — get from localStorage and sync
+      const usersRegistry = JSON.parse(localStorage.getItem('users_registry') || '[]');
+      const localProfile = usersRegistry.find((u: any) => u.email === email);
+      if (!localProfile) return;
+
+      const { error } = await db
+        .from('profiles')
+        .upsert({
+          email: localProfile.email,
+          username: localProfile.username || email.split('@')[0],
+          bio: localProfile.bio || '',
+          photo: localProfile.photo || '',
+          points: localProfile.points || 0,
+          role: localProfile.role || 'user',
+          status: localProfile.status || 'Active',
+        }, { onConflict: 'email' });
+      
+      if (error) {
+        console.error('syncProfileToSupabase FAILED:', error.message);
+      } else {
+        console.log('Profile synced to Supabase via AppShell:', email);
+      }
+    } catch (err) {
+      console.error('syncProfileToSupabase error:', err);
     }
   },
 
