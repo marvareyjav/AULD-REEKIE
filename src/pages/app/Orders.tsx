@@ -14,7 +14,6 @@ export default function Orders() {
   const [orders, setOrders] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // ✅ FIX: tambah state untuk feedback tombol
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -46,7 +45,6 @@ export default function Orders() {
   };
 
   const filteredOrders = orders.filter((o: any) => {
-    // ✅ FIX: filter case-insensitive supaya 'Confirmed' match 'confirmed' dll
     const matchesFilter = filter === 'All' || o.status?.toLowerCase() === filter.toLowerCase();
     const matchesSearch =
       (o.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -73,28 +71,44 @@ export default function Orders() {
     setTimeout(() => window.print(), 100);
   };
 
-  // ✅ FIX UTAMA: handleUpdateStatus dengan loading state + proper error handling
   const handleUpdateStatus = async (orderId: string, newStatus: string) => {
-    if (updatingId === orderId) return; // prevent double click
+    if (updatingId === orderId) return;
 
-    // Simpan status lama untuk revert kalau gagal
     const prevOrders = orders;
+    const order = orders.find(o => o.id === orderId);
 
     try {
       setUpdatingId(orderId);
 
-      // Optimistic update — UI langsung berubah
+      // Optimistic update
       setOrders(prev =>
         prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o)
       );
 
-      // Sync ke Supabase — kalau error, ini akan throw
       await SupabaseService.updateOrderStatus(orderId, newStatus);
 
-      showToast(`Status berhasil diubah ke ${newStatus}`, 'success');
+      // Refund poin jika cancel dan bayar pakai Points
+      if (newStatus === 'Cancelled' && order?.payment_method === 'Points' && currentUserEmail) {
+        // Hitung total order (strip format Rp)
+        const totalStr = order.total || '0';
+        const totalNum = parseInt(totalStr.replace(/[^0-9]/g, '')) || 0;
+
+        // Ambil poin sekarang lalu tambahkan refund
+        const profile = await SupabaseService.getProfile(currentUserEmail);
+        const currentPoints = profile?.points || 0;
+        const refundedPoints = currentPoints + totalNum;
+
+        await SupabaseService.upsertProfile({
+          email: currentUserEmail,
+          points: refundedPoints
+        });
+
+        showToast(`Pesanan dibatalkan. ${totalNum.toLocaleString('id-ID')} poin dikembalikan!`, 'success');
+      } else {
+        showToast(`Status berhasil diubah ke ${newStatus}`, 'success');
+      }
     } catch (err: any) {
       console.error('Error updating order status:', err);
-      // Revert ke status sebelumnya
       setOrders(prevOrders);
       showToast(err?.message || 'Gagal mengupdate status pesanan.', 'error');
     } finally {
@@ -112,13 +126,10 @@ export default function Orders() {
 
   return (
     <div className="space-y-8">
-      {/* ✅ Toast Notification */}
       {toast && (
         <div
           className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-bold transition-all ${
-            toast.type === 'success'
-              ? 'bg-green-500 text-white'
-              : 'bg-red-500 text-white'
+            toast.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
           }`}
         >
           {toast.message}
@@ -311,6 +322,9 @@ export default function Orders() {
                     </td>
                     <td className="px-6 py-4 text-sm font-black text-brand-ink whitespace-nowrap">
                       {order.total}
+                      {order.payment_method === 'Points' && (
+                        <span className="ml-1 text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">POIN</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-widest whitespace-nowrap ${
@@ -325,7 +339,6 @@ export default function Orders() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end space-x-2 whitespace-nowrap">
-                        {/* ✅ FIX: tombol admin dengan loading spinner */}
                         {isAdmin && order.status === 'Confirmed' && (
                           <button
                             onClick={() => handleUpdateStatus(order.id, 'Preparing')}
@@ -377,11 +390,13 @@ export default function Orders() {
                             }
                           </button>
                         )}
-                        {/* User actions */}
                         {!isAdmin && order.status === 'Confirmed' && (
                           <button
                             onClick={() => {
-                              if (confirm('Yakin ingin membatalkan pesanan ini?')) {
+                              const msg = order.payment_method === 'Points'
+                                ? 'Yakin ingin membatalkan? Poin akan dikembalikan.'
+                                : 'Yakin ingin membatalkan pesanan ini?';
+                              if (confirm(msg)) {
                                 handleUpdateStatus(order.id, 'Cancelled');
                               }
                             }}
@@ -471,7 +486,12 @@ export default function Orders() {
                 <div className="flex items-center justify-between pt-2">
                   <div>
                     <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{order.date}</p>
-                    <p className="text-base font-black text-brand-ink">{order.total}</p>
+                    <p className="text-base font-black text-brand-ink">
+                      {order.total}
+                      {order.payment_method === 'Points' && (
+                        <span className="ml-1 text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-black">POIN</span>
+                      )}
+                    </p>
                   </div>
                   <div className="flex items-center space-x-2">
                     {isAdmin && order.status === 'Confirmed' && (
@@ -512,7 +532,12 @@ export default function Orders() {
                     )}
                     {!isAdmin && order.status === 'Confirmed' && (
                       <button
-                        onClick={() => { if (confirm('Batalkan pesanan?')) handleUpdateStatus(order.id, 'Cancelled'); }}
+                        onClick={() => {
+                          const msg = order.payment_method === 'Points'
+                            ? 'Yakin ingin membatalkan? Poin akan dikembalikan.'
+                            : 'Yakin ingin membatalkan pesanan ini?';
+                          if (confirm(msg)) handleUpdateStatus(order.id, 'Cancelled');
+                        }}
                         disabled={isUpdating}
                         className="p-3 bg-red-50 text-red-600 rounded-xl shadow-sm disabled:opacity-50"
                       >
