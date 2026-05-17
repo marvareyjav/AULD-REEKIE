@@ -282,9 +282,7 @@ export const SupabaseService = {
     }
   },
 
-  // ✅ FIX: updateOrderStatus sekarang throw error supaya Orders.tsx bisa catch dan revert
   async updateOrderStatus(id: string, status: string) {
-    // 1. Update localStorage dulu
     const localOrders = JSON.parse(localStorage.getItem('orders_history') || '[]');
     const idx = localOrders.findIndex((o: any) => o.id === id);
     if (idx >= 0) {
@@ -292,7 +290,6 @@ export const SupabaseService = {
       localStorage.setItem('orders_history', JSON.stringify(localOrders));
     }
 
-    // 2. Sync ke Supabase — THROW kalau error supaya caller tahu
     const { data, error } = await supabase
       .from('orders')
       .update({ status })
@@ -375,43 +372,72 @@ export const SupabaseService = {
 
   async getMenuItems() {
     try {
-      const localMenu = JSON.parse(localStorage.getItem('menu_catalog') || '[]');
-      const { data, error } = await supabase.from('menu_catalog').select('*').order('name');
+      const { data, error } = await supabase
+        .from('menu_catalog')
+        .select('*')
+        .order('id');
       
       if (error) {
-        return localMenu.length > 0 ? localMenu : []; 
+        console.warn('Supabase getMenuItems error:', error.message);
+        return JSON.parse(localStorage.getItem('menu_catalog') || '[]');
       }
       
       const supabaseMenu = (data || []) as any[];
-      const combined = [...supabaseMenu];
-      localMenu.forEach((local: any) => {
-        if (!combined.find(s => s.id === local.id || s.name === local.name)) {
-          combined.push(local);
-        }
-      });
-      
-      return combined;
+      // Sync ke localStorage sebagai cache
+      localStorage.setItem('menu_catalog', JSON.stringify(supabaseMenu));
+      return supabaseMenu;
     } catch (err) {
       return JSON.parse(localStorage.getItem('menu_catalog') || '[]');
     }
   },
 
   async upsertMenuItem(item: any) {
+    // Update localStorage cache dulu
     const localMenu = JSON.parse(localStorage.getItem('menu_catalog') || '[]');
     const idx = localMenu.findIndex((i: any) => i.id === item.id || i.name === item.name);
     if (idx >= 0) localMenu[idx] = { ...localMenu[idx], ...item };
-    else localMenu.push({ id: Date.now(), ...item });
+    else localMenu.push(item);
     localStorage.setItem('menu_catalog', JSON.stringify(localMenu));
 
     try {
-      const { data, error } = await supabase
-        .from('menu_catalog')
-        .upsert(item)
-        .select()
-        .maybeSingle();
-      if (error) return item;
-      return data || item;
+      const payload = {
+        name: item.name,
+        price: item.price,
+        category: item.category,
+        tag: item.tag || null,
+        img: item.img || null,
+      };
+
+      // Kalau item punya id yang valid (dari Supabase), UPDATE
+      if (item.id && typeof item.id === 'number') {
+        const { data, error } = await supabase
+          .from('menu_catalog')
+          .update(payload)
+          .eq('id', item.id)
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          console.error('Update menu error:', error.message);
+          return item;
+        }
+        return data || item;
+      } else {
+        // Item baru tanpa id — INSERT
+        const { data, error } = await supabase
+          .from('menu_catalog')
+          .insert(payload)
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          console.error('Insert menu error:', error.message);
+          return item;
+        }
+        return data || item;
+      }
     } catch (err) {
+      console.error('upsertMenuItem exception:', err);
       return item;
     }
   },
