@@ -1,17 +1,44 @@
 import { Link } from 'react-router-dom';
 import { Coffee, Clock, Users, ArrowRight, Instagram, Twitter, Facebook, Search, ShoppingBag } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CATEGORIES, MENU_ITEMS } from '../constants/menu';
+import { SupabaseService } from '../services/supabaseService';
 
 export default function LandingPage() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [menuItems, setMenuItems] = useState<any[]>(MENU_ITEMS);
 
-  const filteredMenu = MENU_ITEMS.filter(item => {
+  useEffect(() => {
+    const loadMenu = async () => {
+      try {
+        const data = await SupabaseService.getMenuItems();
+        const deletedNames: string[] = JSON.parse(localStorage.getItem('deleted_menu_names') || '[]');
+
+        const merged = [...MENU_ITEMS];
+        data.forEach((dbItem: any) => {
+          const idx = merged.findIndex((m: any) => m.name === dbItem.name);
+          if (idx >= 0) {
+            merged[idx] = { ...merged[idx], ...dbItem };
+          } else {
+            merged.push(dbItem);
+          }
+        });
+
+        setMenuItems(merged.filter((item: any) => !deletedNames.includes(item.name)));
+      } catch (err) {
+        console.error('Failed to load menu on landing page:', err);
+        // Tetap pakai MENU_ITEMS default
+      }
+    };
+    loadMenu();
+  }, []);
+
+  const filteredMenu = menuItems.filter(item => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
     if (!matchesSearch) return false;
-    
+
     if (activeCategory === 'All') return true;
     if (['Best Seller', 'New Menu', 'Combo'].includes(activeCategory)) {
       return item.tag === activeCategory;
@@ -33,8 +60,8 @@ export default function LandingPage() {
               <a href="#features" className="hover:text-brand-asphalt transition-colors">Experience</a>
               <a href="#menu" className="hover:text-brand-asphalt transition-colors">Our Menu</a>
             </div>
-            <Link 
-              to="/login" 
+            <Link
+              to="/login"
               className="px-6 py-2.5 bg-brand-asphalt text-white text-sm font-bold rounded-full shadow-lg hover:scale-105 transition-all"
             >
               Order Now
@@ -65,14 +92,13 @@ export default function LandingPage() {
           </div>
           <div className="flex-1 relative">
             <div className="relative z-10 rounded-[3rem] overflow-hidden shadow-2xl border-[12px] border-white rotate-2 hover:rotate-0 transition-transform duration-700">
-              <img 
-                src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=1200" 
-                alt="Coffee Art" 
+              <img
+                src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&q=80&w=1200"
+                alt="Coffee Art"
                 className="w-full aspect-[4/5] object-cover"
                 referrerPolicy="no-referrer"
               />
             </div>
-            {/* Background elements */}
             <div className="absolute -top-10 -right-10 w-64 h-64 bg-brand-sandstone/10 rounded-full blur-3xl" />
             <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-brand-slate/10 rounded-full blur-3xl" />
           </div>
@@ -88,21 +114,21 @@ export default function LandingPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
             {[
-              { 
-                icon: Coffee, 
-                title: 'Premium Roasts', 
+              {
+                icon: Coffee,
+                title: 'Premium Roasts',
                 desc: 'Sourced from high-altitude estates and roasted daily for unmatched complexity.',
                 color: 'bg-brand-asphalt'
               },
-              { 
-                icon: Clock, 
-                title: 'Express Setup', 
+              {
+                icon: Clock,
+                title: 'Express Setup',
                 desc: 'Real-time ordering means your cup is waiting for you. No lines, no stress.',
                 color: 'bg-brand-slate'
               },
-              { 
-                icon: Users, 
-                title: 'Community First', 
+              {
+                icon: Users,
+                title: 'Community First',
                 desc: 'A space designed for gathering, working, and celebrating the art of slow living.',
                 color: 'bg-brand-sandstone'
               },
@@ -140,15 +166,15 @@ export default function LandingPage() {
                   className="w-full pl-12 pr-4 py-4 bg-white border border-black/[0.05] rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-asphalt transition-all font-bold text-sm"
                 />
               </div>
-              
+
               <div className="flex lg:flex-col gap-2 overflow-x-auto pb-4 lg:pb-0 no-scrollbar">
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat}
                     onClick={() => setActiveCategory(cat)}
                     className={`px-6 py-3 rounded-xl whitespace-nowrap transition-all font-black text-xs uppercase tracking-widest text-left ${
-                      activeCategory === cat 
-                        ? 'bg-brand-asphalt text-white shadow-xl' 
+                      activeCategory === cat
+                        ? 'bg-brand-asphalt text-white shadow-xl'
                         : 'bg-white text-brand-asphalt/60 hover:bg-gray-100 border border-black/[0.03]'
                     }`}
                   >
@@ -171,10 +197,10 @@ export default function LandingPage() {
                     className="group bg-white p-4 rounded-[2.5rem] border border-black/[0.03] hover:shadow-2xl transition-all duration-500"
                   >
                     <div className="relative h-64 mb-6 overflow-hidden rounded-[2rem] bg-gray-50">
-                      <img 
-                        src={item.img || undefined} 
-                        alt={item.name} 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                      <img
+                        src={item.img || undefined}
+                        alt={item.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                         referrerPolicy="no-referrer"
                       />
                       {item.tag && (
@@ -187,8 +213,8 @@ export default function LandingPage() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                        <Link 
-                          to="/login" 
+                        <Link
+                          to="/login"
                           className="px-6 py-3 bg-white text-brand-asphalt rounded-xl font-black text-xs uppercase tracking-widest shadow-2xl hover:scale-105 active:scale-95 transition-all"
                         >
                           Log in to Order
@@ -221,14 +247,13 @@ export default function LandingPage() {
               <p className="text-white/60 font-medium mb-10 max-w-xl mx-auto">
                 Buat akun atau masuk untuk mulai memesan. Kopi favoritmu hanya berjarak beberapa klik saja.
               </p>
-              <Link 
-                to="/login" 
+              <Link
+                to="/login"
                 className="inline-flex items-center gap-3 px-10 py-5 bg-white text-brand-asphalt rounded-2xl font-black shadow-xl hover:scale-105 active:scale-95 transition-all group"
               >
                 Mulai Memesan Sekarang <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
               </Link>
             </div>
-            {/* Background pattern */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-brand-sandstone/10 rounded-full translate-y-1/2 -translate-x-1/2 blur-3xl" />
           </div>
