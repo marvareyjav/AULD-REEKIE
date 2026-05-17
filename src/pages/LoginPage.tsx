@@ -178,18 +178,34 @@ export default function LoginPage() {
                 return;
               }
             } catch (signInErr: any) {
-              if (signInErr.message?.includes('Invalid login credentials')) {
-                setErrorMessage('Username atau password salah.');
-                clearTimeout(loginTimeout);
-                setLoading(false);
-                return;
-              }
-              const isConfirmationError = signInErr.message?.includes('Email not confirmed') || signInErr.message?.includes('confirmation') || signInErr.status === 400;
-              if (isConfirmationError) {
-                 console.warn('Confirmation required, bypassing via fallback...');
-                 await handleFallbackLogin(username);
-                 clearTimeout(loginTimeout);
-                 return;
+              const isInvalidCreds = signInErr.message?.includes('Invalid login credentials');
+              const isConfirmationError = signInErr.message?.includes('Email not confirmed') || signInErr.message?.includes('confirmation');
+              
+              if (isInvalidCreds || isConfirmationError) {
+                // Check if user profile exists — if yes, they registered before but email isn't confirmed
+                // Use fresh client to check without broken auth session
+                const profile = await SupabaseService.getProfile(fakeEmail);
+                if (profile) {
+                  // User exists — email confirmation is blocking them, use fallback
+                  console.warn('User exists but auth failed (likely unconfirmed email), using fallback...');
+                  
+                  if (profile.status === 'Blocked') {
+                    setErrorMessage('Akun kamu diblokir oleh admin.');
+                    clearTimeout(loginTimeout);
+                    setLoading(false);
+                    return;
+                  }
+                  
+                  await handleFallbackLogin(username);
+                  clearTimeout(loginTimeout);
+                  return;
+                } else {
+                  // User truly doesn't exist — wrong credentials
+                  setErrorMessage('Username atau password salah.');
+                  clearTimeout(loginTimeout);
+                  setLoading(false);
+                  return;
+                }
               }
               throw signInErr;
             }
